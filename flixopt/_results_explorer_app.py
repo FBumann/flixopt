@@ -1429,37 +1429,33 @@ def explore_results_app(results):
 
             # Node Balance tab
             with tabs[0]:
-                try:
-                    st.subheader("Node Balance")
+                st.subheader("Node Balance")
 
-                    scenario = (
-                        st.selectbox(f'Select a scenario: {results.scenarios[0]}', list(results.scenarios))
-                        if results.scenarios is not None
-                        else None
-                    )
+                scenario = (
+                    st.selectbox(f'Select a scenario: {results.scenarios[0]}', list(results.scenarios))
+                    if results.scenarios is not None
+                    else None
+                )
+                if st.checkbox("Show as pie chart", value=True):
+                    fig = component.plot_node_balance_pie(show=False, save=False, scenario=scenario)
+                elif component.is_storage:
+                    fig = component.plot_charge_state(show=False, save=False, scenario=scenario)
+                else:
+                    fig = component.plot_node_balance(show=False, save=False, scenario=scenario)
 
-                    # Use built-in plotting method
+                st.plotly_chart(fig, theme='streamlit', use_container_width=True)
+
+                # Also show as dataframe if requested
+                if st.checkbox("Show Data Table"):
                     if component.is_storage:
-                        fig = component.plot_charge_state(show=False, save=False, scenario=scenario)
+                        node_balance = component.node_balance_with_charge_state()
                     else:
-                        fig = component.plot_node_balance(show=False, save=False, scenario=scenario)
+                        node_balance = component.node_balance()
 
-                    st.plotly_chart(fig, theme='streamlit', use_container_width=True)
-
-                    # Also show as dataframe if requested
-                    if st.checkbox("Show Data Table"):
-                        if component.is_storage:
-                            node_balance = component.node_balance_with_charge_state()
-                        else:
-                            node_balance = component.node_balance()
-
-                        if scenario:
-                            st.dataframe(node_balance.sel(scenario=scenario).to_pandas())
-                        else:
-                            st.dataframe(node_balance.to_pandas())
-
-                except Exception as e:
-                    st.error(f"Error displaying the node balance: {e}")
+                    if scenario:
+                        st.dataframe(node_balance.sel(scenario=scenario).to_pandas())
+                    else:
+                        st.dataframe(node_balance.to_pandas())
 
             # Variables tab
             with tabs[1]:
@@ -1484,29 +1480,27 @@ def explore_results_app(results):
 
             # Node Balance tab
             with tabs[0]:
-                try:
-                    st.subheader("Node Balance")
+                st.subheader("Node Balance")
 
-                    scenario = (
-                        st.selectbox(f'Select a scenario: {results.scenarios[0]}', list(results.scenarios))
-                        if results.scenarios is not None
-                        else None
-                    )
-
-                    # Use built-in plotting method
+                scenario = (
+                    st.selectbox(f'Select a scenario: {results.scenarios[0]}', list(results.scenarios))
+                    if results.scenarios is not None
+                    else None
+                )
+                if st.checkbox("Show as pie chart", value=True):
+                    fig = bus.plot_node_balance_pie(show=False, save=False, scenario=scenario)
+                else:
                     fig = bus.plot_node_balance(show=False, save=False, scenario=scenario)
-                    st.plotly_chart(fig, theme=None, use_container_width=True)
+                st.plotly_chart(fig, theme=None, use_container_width=True)
 
-                    # Also show as dataframe if requested
-                    if st.checkbox("Show Data Table"):
-                        if scenario:
-                            df = bus.node_balance().sel(scenario=scenario).to_pandas()
-                        else:
-                            df = bus.node_balance().to_pandas()
-                        st.dataframe(df)
+                # Also show as dataframe if requested
+                if st.checkbox("Show Data Table"):
+                    if scenario:
+                        df = bus.node_balance().sel(scenario=scenario).to_pandas()
+                    else:
+                        df = bus.node_balance().to_pandas()
+                    st.dataframe(df)
 
-                except Exception as e:
-                    st.error(f"Error displaying the node balance: {e}")
 
             # Variables tab
             with tabs[1]:
