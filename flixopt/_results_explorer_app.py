@@ -419,44 +419,144 @@ def plot_scalar(array: xr.DataArray, container: Optional[Any] = None) -> None:
     container.metric('Value', float(array.values))
 
 
-@show_traceback()
-def plot_1d(array: xr.DataArray, var_name: str, container: Optional[Any] = None) -> None:
+def create_color_config(
+    key_prefix: str, num_series: int = 1, container: Optional[Any] = None, preset_options: bool = True
+) -> Dict[str, str]:
     """
-    Plot a 1-dimensional DataArray with multiple plot type options.
+    Create a reusable color configuration panel for plots.
 
     Args:
-        array: xarray.DataArray with 1 dimension
-        var_name: Name of the variable being plotted
-        container: Streamlit container to render in (if None, uses st directly)
+        key_prefix: Unique prefix for session state keys
+        num_series: Number of series to create colors for
+        container: Streamlit container to render in
+        preset_options: Whether to include color preset options
+
+    Returns:
+        Dict of color settings
     """
+    if container is None:
+        container = st
+
+    # Default color palette from Plotly
+    default_colors = px.colors.qualitative.Plotly
+
+    # Initialize in session state if needed
+    if f'{key_prefix}_colors' not in st.session_state:
+        # Create initial colors dict
+        colors = {'background_color': '#FFFFFF', 'grid_color': '#EEEEEE', 'title_color': '#000000'}
+
+        # Add colors for each series
+        for i in range(num_series):
+            colors[f'series_{i}'] = default_colors[i % len(default_colors)]
+
+        st.session_state[f'{key_prefix}_colors'] = colors
+
+    colors = st.session_state[f'{key_prefix}_colors']
+
+    # Create expandable section
+    with container.expander('Customize Colors', expanded=False):
+        # Presets if requested
+        if preset_options:
+            presets = {
+                'Default': {
+                    'background_color': '#FFFFFF',
+                    'grid_color': '#EEEEEE',
+                    'title_color': '#000000',
+                    'series_colors': default_colors,
+                },
+                'Dark Mode': {
+                    'background_color': '#1E1E1E',
+                    'grid_color': '#333333',
+                    'title_color': '#FFFFFF',
+                    'series_colors': px.colors.qualitative.Light24,
+                },
+                'Pastel': {
+                    'background_color': '#F9F9F9',
+                    'grid_color': '#EEEEEE',
+                    'title_color': '#333333',
+                    'series_colors': px.colors.qualitative.Pastel,
+                },
+            }
+
+            selected_preset = st.selectbox('Color Preset', list(presets.keys()), key=f'{key_prefix}_preset')
+
+            if st.button('Apply Preset', key=f'{key_prefix}_apply_preset'):
+                preset = presets[selected_preset]
+                colors['background_color'] = preset['background_color']
+                colors['grid_color'] = preset['grid_color']
+                colors['title_color'] = preset['title_color']
+
+                # Apply series colors
+                for i in range(num_series):
+                    idx = i % len(preset['series_colors'])
+                    colors[f'series_{i}'] = preset['series_colors'][idx]
+
+        # Create columns for the pickers
+        st.write('Custom Colors:')
+        cols = st.columns(2)
+
+        # Create color pickers for core elements
+        colors['background_color'] = cols[0].color_picker(
+            'Background', colors['background_color'], key=f'{key_prefix}_bg_color'
+        )
+        colors['grid_color'] = cols[0].color_picker('Grid', colors['grid_color'], key=f'{key_prefix}_grid_color')
+        colors['title_color'] = cols[1].color_picker('Title', colors['title_color'], key=f'{key_prefix}_title_color')
+
+        # Series colors
+        st.write('Data Series Colors:')
+        for i in range(num_series):
+            if i % 3 == 0:
+                series_cols = st.columns(3)
+
+            col_idx = i % 3
+            colors[f'series_{i}'] = series_cols[col_idx].color_picker(
+                f'Series {i + 1}', colors[f'series_{i}'], key=f'{key_prefix}_series_{i}_color'
+            )
+
+    return colors
+
+
+# Example usage for your plot_1d function
+@show_traceback()
+def plot_1d(array: xr.DataArray, var_name: str, container: Optional[Any] = None) -> None:
+    """Plot with color customization"""
     if container is None:
         container = st
 
     dim = list(array.dims)[0]
 
-    # Add plot type selector
-    plot_type = container.selectbox('Plot type:', ['Line', 'Bar', 'Histogram', 'Area'], key=f'plot_type_1d_{var_name}')
+    # Controls section
+    col1, col2 = container.columns([3, 1])
+
+    # Plot type selector
+    plot_type = col1.selectbox('Plot type:', ['Line', 'Bar', 'Histogram', 'Area'], key=f'plot_type_1d_{var_name}')
+
+    # Color configuration - get just one series since this is a 1D plot
+    colors = create_color_config(f'plot_1d_{var_name}', num_series=1, container=col2)
 
     # Create figure based on selected plot type
     if plot_type == 'Line':
         fig = px.line(
             x=array[dim].values, y=array.values, labels={'x': dim, 'y': var_name}, title=f'{var_name} by {dim}'
         )
+        fig.update_traces(line_color=colors['series_0'])
+
     elif plot_type == 'Bar':
+        # Code as before, applying colors
         df = pd.DataFrame({dim: array[dim].values, 'value': array.values})
         fig = px.bar(df, x=dim, y='value', labels={'value': var_name}, title=f'{var_name} by {dim}')
-    elif plot_type == 'Histogram':
-        fig = px.histogram(
-            x=array.values,
-            nbins=min(30, len(array) // 2) if len(array) > 2 else 10,
-            labels={'x': var_name},
-            title=f'Distribution of {var_name}',
-        )
-    elif plot_type == 'Area':
-        df = pd.DataFrame({dim: array[dim].values, 'value': array.values})
-        fig = px.area(df, x=dim, y='value', labels={'value': var_name}, title=f'{var_name} by {dim}')
+        fig.update_traces(marker_color=colors['series_0'])
 
-    # Show the plot
+    # Apply common styling to any plot type
+    fig.update_layout(
+        plot_bgcolor=colors['background_color'],
+        paper_bgcolor=colors['background_color'],
+        xaxis=dict(gridcolor=colors['grid_color']),
+        yaxis=dict(gridcolor=colors['grid_color']),
+        title_font_color=colors['title_color'],
+    )
+
+    # Show the plot and remaining functionality
     container.plotly_chart(fig, use_container_width=True)
 
     # For 1D data, we can also offer some basic statistics
@@ -480,6 +580,152 @@ def plot_1d(array: xr.DataArray, var_name: str, container: Optional[Any] = None)
             container.warning(f'Could not compute statistics: {str(e)}')
 
 
+def create_plot_style_picker(key_prefix: str, num_series: int = 1, container: Optional[Any] = None) -> Dict[str, Any]:
+    """
+    Reusable plot style picker component for customizing plot colors and styles.
+
+    Args:
+        key_prefix: Unique prefix for session state keys
+        num_series: Number of data series to create colors for
+        container: Streamlit container to render in
+
+    Returns:
+        Dict with style settings
+    """
+    if container is None:
+        container = st
+
+    # Initialize in session state if needed
+    style_key = f'{key_prefix}_plot_style'
+    if style_key not in st.session_state:
+        # Default Plotly colors for series
+        default_colors = px.colors.qualitative.Plotly
+
+        st.session_state[style_key] = {
+            'background_color': '#FFFFFF',
+            'grid_color': '#EEEEEE',
+            'title_color': '#000000',
+            'colorscale': 'portland',  # For heatmaps
+            'series_colors': [default_colors[i % len(default_colors)] for i in range(num_series)],
+        }
+
+    styles = st.session_state[style_key]
+
+    # Create expandable section for style settings
+    with container.expander('Customize Plot Style', expanded=False):
+        # Create tabs for different style categories
+        color_tab, layout_tab = st.tabs(['Colors', 'Layout'])
+
+        with color_tab:
+            # Create color presets
+            presets = {
+                'Default': {
+                    'background_color': '#FFFFFF',
+                    'grid_color': '#EEEEEE',
+                    'title_color': '#000000',
+                    'colorscale': 'portland',
+                    'series_colors': px.colors.qualitative.Plotly,
+                },
+                'Dark Mode': {
+                    'background_color': '#1E1E1E',
+                    'grid_color': '#333333',
+                    'title_color': '#FFFFFF',
+                    'colorscale': 'Viridis',
+                    'series_colors': px.colors.qualitative.Light24,
+                },
+                'Pastel': {
+                    'background_color': '#F9F9F9',
+                    'grid_color': '#EEEEEE',
+                    'title_color': '#333333',
+                    'colorscale': 'Pastel',
+                    'series_colors': px.colors.qualitative.Pastel,
+                },
+            }
+
+            col1, col2 = st.columns([2, 1])
+
+            # Preset selector
+            selected_preset = col1.selectbox('Color Preset', list(presets.keys()), key=f'{key_prefix}_preset')
+
+            # Apply preset button
+            if col2.button('Apply', key=f'{key_prefix}_apply_preset'):
+                preset = presets[selected_preset]
+                styles['background_color'] = preset['background_color']
+                styles['grid_color'] = preset['grid_color']
+                styles['title_color'] = preset['title_color']
+                styles['colorscale'] = preset['colorscale']
+
+                # Update series colors (up to the number we have)
+                for i in range(min(num_series, len(preset['series_colors']))):
+                    idx = i % len(preset['series_colors'])
+                    styles['series_colors'][i] = preset['series_colors'][idx]
+
+            st.markdown('##### Background & Layout')
+            col1, col2 = st.columns(2)
+
+            # Basic color pickers
+            styles['background_color'] = col1.color_picker(
+                'Background', styles['background_color'], key=f'{key_prefix}_bg_color'
+            )
+
+            styles['grid_color'] = col2.color_picker('Grid Lines', styles['grid_color'], key=f'{key_prefix}_grid_color')
+
+            styles['title_color'] = col1.color_picker('Title', styles['title_color'], key=f'{key_prefix}_title_color')
+
+            # Colorscale for heatmaps
+            colorscales = [
+                'portland',
+                'Viridis',
+                'Plasma',
+                'Inferno',
+                'Blues',
+                'Reds',
+                'Greens',
+                'YlOrRd',
+                'Cividis',
+                'RdBu',
+            ]
+            styles['colorscale'] = col2.selectbox(
+                'Heatmap Scale',
+                colorscales,
+                index=colorscales.index(styles['colorscale']),
+                key=f'{key_prefix}_colorscale',
+            )
+
+            # Series colors
+            if num_series > 1:
+                st.markdown('##### Data Series Colors')
+                for i in range(0, num_series, 3):
+                    cols = st.columns(3)
+                    for j in range(3):
+                        if i + j < num_series:
+                            styles['series_colors'][i + j] = cols[j].color_picker(
+                                f'Series {i + j + 1}',
+                                styles['series_colors'][i + j],
+                                key=f'{key_prefix}_series_{i + j}_color',
+                            )
+
+        with layout_tab:
+            # Additional layout options could be added here
+            st.markdown('##### Plot Size')
+            styles['plot_height'] = st.slider(
+                'Height (px)',
+                min_value=300,
+                max_value=1000,
+                value=styles.get('plot_height', 500),
+                key=f'{key_prefix}_plot_height',
+            )
+
+            # Could add more options like:
+            # - Font sizes
+            # - Line widths
+            # - Legend position
+            # - etc.
+
+    return styles
+
+
+# Modified plot_nd function with color picker integration
 @show_traceback()
 def plot_nd(array: xr.DataArray, var_name: str, container: Optional[Any] = None) -> Tuple[xr.DataArray, Optional[Dict]]:
     """
@@ -596,6 +842,18 @@ def plot_nd(array: xr.DataArray, var_name: str, container: Optional[Any] = None)
     # Visualization depends on the selected plot type and dimensions
     container.subheader('Plot')
 
+    # ===== ADD STYLE PICKER INTEGRATION HERE =====
+    # Calculate number of series for the style picker
+    num_series = 1
+    if y_dim is not None:
+        num_series = len(array_slice[y_dim].values)
+
+    # Create unique key for this plot
+    style_key = f'plot_nd_{var_name}_{"_".join(dims)}'
+
+    # Create the style picker
+    style_settings = create_plot_style_picker(style_key, num_series)
+
     if y_dim is not None:
         # 2D visualization
         if plot_type == 'Heatmap':
@@ -604,10 +862,18 @@ def plot_nd(array: xr.DataArray, var_name: str, container: Optional[Any] = None)
                 array_slice.transpose(y_dim, x_dim).values,
                 x=array_slice[x_dim].values,
                 y=array_slice[y_dim].values,
-                color_continuous_scale='portland',
+                color_continuous_scale=style_settings['colorscale'],  # Use custom colorscale
                 labels={'x': x_dim, 'y': y_dim, 'color': var_name},
             )
-            fig.update_layout(height=500)
+            fig.update_layout(
+                height=style_settings['plot_height'],
+                paper_bgcolor=style_settings['background_color'],
+                plot_bgcolor=style_settings['background_color'],
+                font_color=style_settings['title_color'],
+                xaxis=dict(gridcolor=style_settings['grid_color']),
+                yaxis=dict(gridcolor=style_settings['grid_color']),
+            )
+
         elif plot_type == 'Line':
             # Line plot with multiple lines (one per y-dimension value)
             fig = go.Figure()
@@ -616,19 +882,31 @@ def plot_nd(array: xr.DataArray, var_name: str, container: Optional[Any] = None)
             df = array_slice.to_dataframe(name='value').reset_index()
 
             # Group by y-dimension for multiple lines
-            for y_val in array_slice[y_dim].values:
+            for i, y_val in enumerate(array_slice[y_dim].values):
                 df_subset = df[df[y_dim] == y_val]
                 fig.add_trace(
-                    go.Scatter(x=df_subset[x_dim], y=df_subset['value'], mode='lines', name=f'{y_dim}={y_val}')
+                    go.Scatter(
+                        x=df_subset[x_dim],
+                        y=df_subset['value'],
+                        mode='lines',
+                        name=f'{y_dim}={y_val}',
+                        line=dict(color=style_settings['series_colors'][i % len(style_settings['series_colors'])]),
+                    )
                 )
 
             fig.update_layout(
-                height=500,
+                height=style_settings['plot_height'],
                 title=f'{var_name} by {x_dim} and {y_dim}',
                 xaxis_title=x_dim,
                 yaxis_title=var_name,
                 legend_title=y_dim,
+                paper_bgcolor=style_settings['background_color'],
+                plot_bgcolor=style_settings['background_color'],
+                font_color=style_settings['title_color'],
+                xaxis=dict(gridcolor=style_settings['grid_color']),
+                yaxis=dict(gridcolor=style_settings['grid_color']),
             )
+
         elif plot_type == 'Stacked Bar':
             # Stacked bar chart
             # Convert to dataframe for easier plotting
@@ -642,8 +920,17 @@ def plot_nd(array: xr.DataArray, var_name: str, container: Optional[Any] = None)
                 color=y_dim,
                 barmode='relative',
                 labels={'value': var_name, x_dim: x_dim, y_dim: y_dim},
+                color_discrete_sequence=style_settings['series_colors'],
             )
-            fig.update_layout(height=500)
+            fig.update_layout(
+                height=style_settings['plot_height'],
+                paper_bgcolor=style_settings['background_color'],
+                plot_bgcolor=style_settings['background_color'],
+                font_color=style_settings['title_color'],
+                xaxis=dict(gridcolor=style_settings['grid_color']),
+                yaxis=dict(gridcolor=style_settings['grid_color']),
+            )
+
         elif plot_type == 'Grouped Bar':
             # Grouped bar chart
             # Convert to dataframe for easier plotting
@@ -656,21 +943,44 @@ def plot_nd(array: xr.DataArray, var_name: str, container: Optional[Any] = None)
                 color=y_dim,
                 barmode='group',
                 labels={'value': var_name, x_dim: x_dim, y_dim: y_dim},
+                color_discrete_sequence=style_settings['series_colors'],
             )
-            fig.update_layout(height=500)
+            fig.update_layout(
+                height=style_settings['plot_height'],
+                paper_bgcolor=style_settings['background_color'],
+                plot_bgcolor=style_settings['background_color'],
+                font_color=style_settings['title_color'],
+                xaxis=dict(gridcolor=style_settings['grid_color']),
+                yaxis=dict(gridcolor=style_settings['grid_color']),
+            )
+
     else:
         # 1D visualization after slicing (no y_dim)
         if plot_type == 'Line':
             fig = px.line(x=array_slice[x_dim].values, y=array_slice.values, labels={'x': x_dim, 'y': var_name})
+            # Apply custom line color
+            fig.update_traces(line_color=style_settings['series_colors'][0])
+
         elif plot_type in ['Stacked Bar', 'Grouped Bar']:  # Both are the same for 1D
             # Create a dataframe for the bar chart
             df = pd.DataFrame({x_dim: array_slice[x_dim].values, 'value': array_slice.values})
 
             fig = px.bar(df, x=x_dim, y='value', labels={'value': var_name})
+            # Apply custom bar color
+            fig.update_traces(marker_color=style_settings['series_colors'][0])
+
+        # Apply common layout settings
+        fig.update_layout(
+            height=style_settings['plot_height'],
+            paper_bgcolor=style_settings['background_color'],
+            plot_bgcolor=style_settings['background_color'],
+            font_color=style_settings['title_color'],
+            xaxis=dict(gridcolor=style_settings['grid_color']),
+            yaxis=dict(gridcolor=style_settings['grid_color']),
+        )
 
     container.plotly_chart(fig, use_container_width=True)
     return array_slice, slice_dict
-
 
 @show_traceback()
 def display_data_preview(array: xr.DataArray, container: Optional[Any] = None) -> pd.DataFrame:
