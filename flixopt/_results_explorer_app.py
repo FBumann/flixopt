@@ -17,7 +17,6 @@ import plotly.graph_objects as go
 import streamlit as st
 import xarray as xr
 
-from flixopt.results import sanitize_dataset
 
 T = TypeVar('T')
 
@@ -974,22 +973,15 @@ def xarray_explorer(
     container: Optional[Any] = None,
 ) -> Dict[str, Any]:
     """
-    A modular xarray explorer for both DataArrays and Datasets.
+    A modular xarray explorer for both DataArrays and Datasets with coordinate filtering.
 
     Args:
         data: xarray.Dataset or xarray.DataArray
-        custom_plotters: Dictionary of custom plotting functions by dimension.
-                        Keys are 'scalar', '1d', and 'nd'.
-        title: Title for the explorer
+        custom_plotters: Dictionary of custom plotting functions by dimension
         container: Streamlit container to render in (if None, uses st directly)
 
     Returns:
-        Dictionary containing information about the current state:
-        - 'data': Original xarray data
-        - 'selected_array': Currently selected/displayed array
-        - 'selected_var': Name of selected variable
-        - 'sliced_array': Array after slicing (for multi-dimensional arrays)
-        - 'slice_dict': Dictionary of dimension slices applied
+        Dictionary containing information about the current state
     """
     if container is None:
         container = st
@@ -997,15 +989,104 @@ def xarray_explorer(
     # Determine if we're working with Dataset or DataArray
     is_dataset = isinstance(data, xr.Dataset)
 
+    # Add filters expander before variable selection
+    with container.expander('Filter Data', expanded=False):
+        # Coordinate filtering
+        st.markdown('### Filter by Coordinates')
+
+        # Identify all coordinates in the data
+        coords = list(data.coords)
+
+        # Group coordinates by type
+        dim_coords = [c for c in coords if c in data.dims]
+        non_dim_coords = [c for c in coords if c not in data.dims]
+
+        # Let user select which coordinates to filter by
+        selected_coords = st.multiselect('Select coordinates to filter by:', coords, default=[])
+
+        # For each selected coordinate, provide appropriate filter options
+        coord_filters = {}
+        for coord in selected_coords:
+            st.markdown(f'**Filter by {coord}:**')
+
+            # Get unique values for this coordinate
+            coord_values = data.coords[coord].values
+
+            # Handle different types of coordinates differently
+            if np.issubdtype(coord_values.dtype, np.datetime64):
+                # For datetime coordinates, use date range sliders
+                min_date = pd.to_datetime(coord_values.min())
+                max_date = pd.to_datetime(coord_values.max())
+
+                date_col1, date_col2 = st.columns(2)
+                start_date = date_col1.date_input(
+                    f'Start date for {coord}', value=min_date, min_value=min_date, max_value=max_date
+                )
+                end_date = date_col2.date_input(
+                    f'End date for {coord}', value=max_date, min_value=min_date, max_value=max_date
+                )
+
+                # Convert to numpy datetime64
+                start_np = np.datetime64(pd.Timestamp(start_date))
+                end_np = np.datetime64(pd.Timestamp(end_date))
+
+                coord_filters[coord] = slice(start_np, end_np)
+
+            elif np.issubdtype(coord_values.dtype, np.number):
+                # For numeric coordinates, use number range sliders
+                st.write(str(coord_values.dtype))
+                st.write(str(coord_values))
+
+                min_val = float(coord_values.min())
+                max_val = float(coord_values.max())
+
+                num_col1, num_col2 = st.columns(2)
+                start_val = num_col1.number_input(
+                    f'Min value for {coord}', value=min_val, min_value=min_val, max_value=max_val
+                )
+                end_val = num_col2.number_input(
+                    f'Max value for {coord}', value=max_val, min_value=min_val, max_value=max_val
+                )
+
+                coord_filters[coord] = slice(start_val, end_val)
+
+            else:
+                # For categorical/string/other coordinates, use multiselect
+                unique_values = np.unique(coord_values)
+                selected_values = st.multiselect(
+                    f'Select values for {coord}', unique_values, default=list(unique_values)
+                )
+
+                coord_filters[coord] = selected_values
+
+        # Add a button to apply filters
+        apply_filters = st.button('Apply Filters')
+
+    # Apply filters if the button was pressed
+    filtered_data = data
+    if apply_filters:
+        # In the part where we apply coordinate filters
+        dim_filters = {dim: filter_value for dim, filter_value in coord_filters.items() if dim in dim_coords}
+        coord_filters = {coord: filter_value for coord, filter_value in coord_filters.items() if coord in non_dim_coords}
+
+        for coord, filter_value in dim_filters.items():
+            filtered_data = filtered_data.sel(**{coord: filter_value})
+
+        for coord, filter_value in coord_filters.items():
+            filtered_data = filtered_data.where(
+                filtered_data[coord].isin(filter_value) if isinstance(filter_value, list) else filtered_data[coord] == filter_value,
+                drop=True
+            )
+
     # Variable selection for Dataset or direct visualization for DataArray
     if is_dataset:
         # Variable selection
-        selected_var = container.selectbox('Select variable:', list(data.data_vars))
-        array_to_plot = data[selected_var]
+        selected_var = container.selectbox('Select variable:', list(filtered_data.data_vars))
+        array_to_plot = filtered_data[selected_var]
     else:
         # If DataArray, use directly
-        array_to_plot = data
-        selected_var = data.name if data.name else 'Data'
+        array_to_plot = filtered_data
+        selected_var = filtered_data.name if filtered_data.name else 'Data'
 
     # Convert scenario dimension to string to ensure categorical plots
     if 'scenario' in array_to_plot.dims:
@@ -1013,14 +1094,15 @@ def xarray_explorer(
 
     # Initialize result dictionary
     result = {
-        'data': data,
+        'data': data,  # Original data
+        'filtered_data': filtered_data,  # Data after filters applied
         'selected_array': array_to_plot,
         'selected_var': selected_var,
         'sliced_array': None,
         'slice_dict': None,
     }
 
-    # Visualization in right column
+    # Visualization section
     container.subheader('Visualization')
 
     # Determine available visualization options based on dimensions
@@ -1062,9 +1144,8 @@ def xarray_explorer(
             container,
         )
 
-
     container.subheader('Data Information')
-    display_data_info(data, container)
+    display_data_info(filtered_data, container)  # Show info for filtered data
 
     # Display variable information
     container.subheader(f'Variable: {selected_var}')
