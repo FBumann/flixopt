@@ -583,6 +583,7 @@ def plot_1d(array: xr.DataArray, var_name: str, container: Optional[Any] = None)
 def create_plot_style_picker(key_prefix: str, num_series: int = 1, container: Optional[Any] = None) -> Dict[str, Any]:
     """
     Reusable plot style picker component for customizing plot colors and styles.
+    Handles any number of data series.
 
     Args:
         key_prefix: Unique prefix for session state keys
@@ -601,15 +602,30 @@ def create_plot_style_picker(key_prefix: str, num_series: int = 1, container: Op
         # Default Plotly colors for series
         default_colors = px.colors.qualitative.Plotly
 
+        # Initialize with base settings
         st.session_state[style_key] = {
             'background_color': '#FFFFFF',
             'grid_color': '#EEEEEE',
             'title_color': '#000000',
             'colorscale': 'portland',  # For heatmaps
-            'series_colors': [default_colors[i % len(default_colors)] for i in range(num_series)],
+            'plot_height': 500,
+            'series_colors': [],  # Start with empty list, will be populated below
         }
 
     styles = st.session_state[style_key]
+
+    # Ensure we have enough colors for all series
+    # This handles cases where num_series increases between renders
+    if 'series_colors' not in styles:
+        styles['series_colors'] = []
+
+    # Get default colors to use
+    default_colors = px.colors.qualitative.Plotly
+
+    # Extend series_colors list if needed
+    while len(styles['series_colors']) < num_series:
+        idx = len(styles['series_colors']) % len(default_colors)
+        styles['series_colors'].append(default_colors[idx])
 
     # Create expandable section for style settings
     with container.expander('Customize Plot Style', expanded=False):
@@ -655,10 +671,10 @@ def create_plot_style_picker(key_prefix: str, num_series: int = 1, container: Op
                 styles['title_color'] = preset['title_color']
                 styles['colorscale'] = preset['colorscale']
 
-                # Update series colors (up to the number we have)
-                for i in range(min(num_series, len(preset['series_colors']))):
-                    idx = i % len(preset['series_colors'])
-                    styles['series_colors'][i] = preset['series_colors'][idx]
+                # Update series colors with the preset colors
+                preset_colors = preset['series_colors']
+                for i in range(num_series):
+                    styles['series_colors'][i] = preset_colors[i % len(preset_colors)]
 
             st.markdown('##### Background & Layout')
             col1, col2 = st.columns(2)
@@ -688,25 +704,42 @@ def create_plot_style_picker(key_prefix: str, num_series: int = 1, container: Op
             styles['colorscale'] = col2.selectbox(
                 'Heatmap Scale',
                 colorscales,
-                index=colorscales.index(styles['colorscale']),
+                index=colorscales.index(styles['colorscale']) if styles['colorscale'] in colorscales else 0,
                 key=f'{key_prefix}_colorscale',
             )
 
-            # Series colors
+            # Series colors - dynamically create UI based on num_series
             if num_series > 1:
                 st.markdown('##### Data Series Colors')
-                for i in range(0, num_series, 3):
-                    cols = st.columns(3)
-                    for j in range(3):
-                        if i + j < num_series:
-                            styles['series_colors'][i + j] = cols[j].color_picker(
-                                f'Series {i + j + 1}',
-                                styles['series_colors'][i + j],
-                                key=f'{key_prefix}_series_{i + j}_color',
+
+                # Determine how many to show per row (3 is a good default)
+                series_per_row = 3
+
+                # Create rows of colors with up to series_per_row columns
+                for i in range(0, num_series, series_per_row):
+                    # Create columns for this row
+                    cols = st.columns(series_per_row)
+
+                    # Fill each column with a color picker if we have a series for it
+                    for j in range(series_per_row):
+                        series_idx = i + j
+
+                        # Only create a color picker if we have a series at this index
+                        if series_idx < num_series:
+                            styles['series_colors'][series_idx] = cols[j].color_picker(
+                                f'Series {series_idx + 1}',
+                                styles['series_colors'][series_idx],
+                                key=f'{key_prefix}_series_{series_idx}_color',
                             )
 
+                # Option to reset series colors to sequential defaults
+                if st.button('Reset Series Colors', key=f'{key_prefix}_reset_series'):
+                    default_colors = px.colors.qualitative.Plotly
+                    for i in range(num_series):
+                        styles['series_colors'][i] = default_colors[i % len(default_colors)]
+
         with layout_tab:
-            # Additional layout options could be added here
+            # Additional layout options
             st.markdown('##### Plot Size')
             styles['plot_height'] = st.slider(
                 'Height (px)',
@@ -716,14 +749,11 @@ def create_plot_style_picker(key_prefix: str, num_series: int = 1, container: Op
                 key=f'{key_prefix}_plot_height',
             )
 
-            # Could add more options like:
-            # - Font sizes
-            # - Line widths
-            # - Legend position
-            # - etc.
+    # Always ensure we return the correct number of colors
+    # In case the number of series decreased, truncate the list
+    styles['series_colors'] = styles['series_colors'][:num_series]
 
     return styles
-
 
 # Modified plot_nd function with color picker integration
 @show_traceback()
