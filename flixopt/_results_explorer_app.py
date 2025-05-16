@@ -580,21 +580,28 @@ def plot_1d(array: xr.DataArray, var_name: str, container: Optional[Any] = None)
             container.warning(f'Could not compute statistics: {str(e)}')
 
 
-def create_plot_style_picker(key_prefix: str, num_series: int = 1, container: Optional[Any] = None) -> Dict[str, Any]:
+def create_plot_style_picker(
+    key_prefix: str, num_series: int = 1, container: Optional[Any] = None, series_labels: Optional[List[str]] = None
+) -> Dict[str, Any]:
     """
     Reusable plot style picker component for customizing plot colors and styles.
-    Handles any number of data series.
+    Handles any number of data series with proper labeling.
 
     Args:
         key_prefix: Unique prefix for session state keys
         num_series: Number of data series to create colors for
         container: Streamlit container to render in
+        series_labels: Optional list of labels for each series (e.g. dimension values)
 
     Returns:
         Dict with style settings
     """
     if container is None:
         container = st
+
+    # Use provided labels or create generic ones
+    if series_labels is None or len(series_labels) != num_series:
+        series_labels = [f'Series {i + 1}' for i in range(num_series)]
 
     # Initialize in session state if needed
     style_key = f'{key_prefix}_plot_style'
@@ -726,8 +733,10 @@ def create_plot_style_picker(key_prefix: str, num_series: int = 1, container: Op
 
                         # Only create a color picker if we have a series at this index
                         if series_idx < num_series:
+                            # Use the provided label instead of generic "Series N"
+                            label = series_labels[series_idx]
                             styles['series_colors'][series_idx] = cols[j].color_picker(
-                                f'Series {series_idx + 1}',
+                                label,
                                 styles['series_colors'][series_idx],
                                 key=f'{key_prefix}_series_{series_idx}_color',
                             )
@@ -875,14 +884,22 @@ def plot_nd(array: xr.DataArray, var_name: str, container: Optional[Any] = None)
     # ===== ADD STYLE PICKER INTEGRATION HERE =====
     # Calculate number of series for the style picker
     num_series = 1
+    series_labels = None
+
     if y_dim is not None:
-        num_series = len(array_slice[y_dim].values)
+        # Get the actual values from the y dimension to use as labels
+        y_values = array_slice[y_dim].values
+        num_series = len(y_values)
+
+        # Format the values as readable labels
+        # Convert values to strings and add the dimension name for context
+        series_labels = [f'{y_dim}={str(val)}' for val in y_values]
 
     # Create unique key for this plot
     style_key = f'plot_nd_{var_name}_{"_".join(dims)}'
 
     # Create the style picker
-    style_settings = create_plot_style_picker(style_key, num_series)
+    style_settings = create_plot_style_picker(style_key, num_series, series_labels=series_labels)
 
     if y_dim is not None:
         # 2D visualization
