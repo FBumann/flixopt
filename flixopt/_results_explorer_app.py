@@ -515,71 +515,6 @@ def create_color_config(
 
     return colors
 
-
-# Example usage for your plot_1d function
-@show_traceback()
-def plot_1d(array: xr.DataArray, var_name: str, container: Optional[Any] = None) -> None:
-    """Plot with color customization"""
-    if container is None:
-        container = st
-
-    dim = list(array.dims)[0]
-
-    # Controls section
-    col1, col2 = container.columns([3, 1])
-
-    # Plot type selector
-    plot_type = col1.selectbox('Plot type:', ['Line', 'Bar', 'Histogram', 'Area'], key=f'plot_type_1d_{var_name}')
-
-    # Color configuration - get just one series since this is a 1D plot
-    colors = create_color_config(f'plot_1d_{var_name}', num_series=1, container=col2)
-
-    # Create figure based on selected plot type
-    if plot_type == 'Line':
-        fig = px.line(
-            x=array[dim].values, y=array.values, labels={'x': dim, 'y': var_name}, title=f'{var_name} by {dim}'
-        )
-        fig.update_traces(line_color=colors['series_0'])
-
-    elif plot_type == 'Bar':
-        # Code as before, applying colors
-        df = pd.DataFrame({dim: array[dim].values, 'value': array.values})
-        fig = px.bar(df, x=dim, y='value', labels={'value': var_name}, title=f'{var_name} by {dim}')
-        fig.update_traces(marker_color=colors['series_0'])
-
-    # Apply common styling to any plot type
-    fig.update_layout(
-        plot_bgcolor=colors['background_color'],
-        paper_bgcolor=colors['background_color'],
-        xaxis=dict(gridcolor=colors['grid_color']),
-        yaxis=dict(gridcolor=colors['grid_color']),
-        title_font_color=colors['title_color'],
-    )
-
-    # Show the plot and remaining functionality
-    container.plotly_chart(fig, use_container_width=True)
-
-    # For 1D data, we can also offer some basic statistics
-    if container.checkbox('Show statistics', key=f'show_stats_{var_name}'):
-        try:
-            stats = pd.DataFrame(
-                {
-                    'Statistic': ['Min', 'Max', 'Mean', 'Median', 'Std', 'Sum'],
-                    'Value': [
-                        float(array.min().values),
-                        float(array.max().values),
-                        float(array.mean().values),
-                        float(np.median(array.values)),
-                        float(array.std().values),
-                        float(array.sum().values),
-                    ],
-                }
-            )
-            container.dataframe(stats, use_container_width=True)
-        except Exception as e:
-            container.warning(f'Could not compute statistics: {str(e)}')
-
-
 def create_plot_style_picker(
     key_prefix: str, num_series: int = 1, container: Optional[Any] = None, series_labels: Optional[List[str]] = None
 ) -> Dict[str, Any]:
@@ -716,36 +651,35 @@ def create_plot_style_picker(
             )
 
             # Series colors - dynamically create UI based on num_series
-            if num_series > 1:
-                st.markdown('##### Data Series Colors')
+            st.markdown('##### Data Series Colors')
 
-                # Determine how many to show per row (3 is a good default)
-                series_per_row = 3
+            # Determine how many to show per row (3 is a good default)
+            series_per_row = 3
 
-                # Create rows of colors with up to series_per_row columns
-                for i in range(0, num_series, series_per_row):
-                    # Create columns for this row
-                    cols = st.columns(series_per_row)
+            # Create rows of colors with up to series_per_row columns
+            for i in range(0, num_series, series_per_row):
+                # Create columns for this row
+                cols = st.columns(series_per_row)
 
-                    # Fill each column with a color picker if we have a series for it
-                    for j in range(series_per_row):
-                        series_idx = i + j
+                # Fill each column with a color picker if we have a series for it
+                for j in range(series_per_row):
+                    series_idx = i + j
 
-                        # Only create a color picker if we have a series at this index
-                        if series_idx < num_series:
-                            # Use the provided label instead of generic "Series N"
-                            label = series_labels[series_idx]
-                            styles['series_colors'][series_idx] = cols[j].color_picker(
-                                label,
-                                styles['series_colors'][series_idx],
-                                key=f'{key_prefix}_series_{series_idx}_color',
-                            )
+                    # Only create a color picker if we have a series at this index
+                    if series_idx < num_series:
+                        # Use the provided label instead of generic "Series N"
+                        label = series_labels[series_idx]
+                        styles['series_colors'][series_idx] = cols[j].color_picker(
+                            label,
+                            styles['series_colors'][series_idx],
+                            key=f'{key_prefix}_series_{series_idx}_color',
+                        )
 
-                # Option to reset series colors to sequential defaults
-                if st.button('Reset Series Colors', key=f'{key_prefix}_reset_series'):
-                    default_colors = px.colors.qualitative.Plotly
-                    for i in range(num_series):
-                        styles['series_colors'][i] = default_colors[i % len(default_colors)]
+            # Option to reset series colors to sequential defaults
+            if st.button('Reset Series Colors', key=f'{key_prefix}_reset_series'):
+                default_colors = px.colors.qualitative.Plotly
+                for i in range(num_series):
+                    styles['series_colors'][i] = default_colors[i % len(default_colors)]
 
         with layout_tab:
             # Additional layout options
@@ -763,6 +697,69 @@ def create_plot_style_picker(
     styles['series_colors'] = styles['series_colors'][:num_series]
 
     return styles
+
+
+# Example usage for your plot_1d function
+@show_traceback()
+def plot_1d(array: xr.DataArray, var_name: str, container: Optional[Any] = None) -> None:
+    """Plot with color customization"""
+    if container is None:
+        container = st
+
+    dim = list(array.dims)[0]
+
+
+    # Plot type selector
+    plot_type = container.selectbox('Plot type:', ['Line', 'Bar', 'Histogram', 'Area'], key=f'plot_type_1d_{var_name}')
+
+    # Color configuration - get just one series since this is a 1D plot
+    colors = create_plot_style_picker(f'plot_1d_{var_name}', num_series=1, series_labels=[var_name])
+
+    # Create figure based on selected plot type
+    if plot_type == 'Line':
+        fig = px.line(
+            x=array[dim].values, y=array.values, labels={'x': dim, 'y': var_name}, title=f'{var_name} by {dim}'
+        )
+        fig.update_traces(line_color=colors['series_colors'][0])
+
+    elif plot_type == 'Bar':
+        # Code as before, applying colors
+        df = pd.DataFrame({dim: array[dim].values, 'value': array.values})
+        fig = px.bar(df, x=dim, y='value', labels={'value': var_name}, title=f'{var_name} by {dim}')
+        fig.update_traces(marker_color=colors['series_colors'][0])
+
+    # Apply common styling to any plot type
+    fig.update_layout(
+        plot_bgcolor=colors['background_color'],
+        paper_bgcolor=colors['background_color'],
+        xaxis=dict(gridcolor=colors['grid_color']),
+        yaxis=dict(gridcolor=colors['grid_color']),
+        title_font_color=colors['title_color'],
+    )
+
+    # Show the plot and remaining functionality
+    container.plotly_chart(fig, use_container_width=True)
+
+    # For 1D data, we can also offer some basic statistics
+    if container.checkbox('Show statistics', key=f'show_stats_{var_name}'):
+        try:
+            stats = pd.DataFrame(
+                {
+                    'Statistic': ['Min', 'Max', 'Mean', 'Median', 'Std', 'Sum'],
+                    'Value': [
+                        float(array.min().values),
+                        float(array.max().values),
+                        float(array.mean().values),
+                        float(np.median(array.values)),
+                        float(array.std().values),
+                        float(array.sum().values),
+                    ],
+                }
+            )
+            container.dataframe(stats, use_container_width=True)
+        except Exception as e:
+            container.warning(f'Could not compute statistics: {str(e)}')
+
 
 # Modified plot_nd function with color picker integration
 @show_traceback()
@@ -1028,6 +1025,7 @@ def plot_nd(array: xr.DataArray, var_name: str, container: Optional[Any] = None)
 
     container.plotly_chart(fig, use_container_width=True)
     return array_slice, slice_dict
+
 
 @show_traceback()
 def display_data_preview(array: xr.DataArray, container: Optional[Any] = None) -> pd.DataFrame:
