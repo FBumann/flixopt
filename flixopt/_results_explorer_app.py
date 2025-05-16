@@ -1460,23 +1460,12 @@ def explore_results_app(results):
 
     elif selected_page == "Flows DS":
         st.title('Flow Rates Dataset')
-        da = results.flow_rates()
-        mode = st.selectbox("Select a mode", ['Flow Rates', 'Flow Hours'])
-
-        cols = st.columns(3)
-        with cols[0]:
-            start=st.selectbox("Start", sorted(set(da.start.values.tolist())), index=None)
-        with cols[1]:
-            end=st.selectbox("End", sorted(set(da.start.values.tolist())), index=None)
-        with cols[2]:
-            component=st.selectbox("Component", sorted(set(da.component.values.tolist())), index=None)
+        mode = st.selectbox('Select a mode', ['Flow Rates', 'Flow Hours'])
 
         if mode == 'Flow Hours':
-            da = results.flow_hours(start=start, end=end, component=component)
+            xarray_explorer(results.flow_hours())
         else:
-            da = results.flow_rates(start=start, end=end, component=component)
-
-        xarray_explorer(da)
+            xarray_explorer(results.flow_rates())
 
     elif selected_page == 'Effects DS':
         st.title('Effects Dataset')
