@@ -967,6 +967,161 @@ def display_data_preview(array: xr.DataArray, container: Optional[Any] = None) -
 
 
 @show_traceback()
+def filter_xarray_by_coords(
+    data: Union[xr.Dataset, xr.DataArray], container: Optional[Any] = None, key_prefix: str = '', expanded: bool = False
+) -> Tuple[Union[xr.Dataset, xr.DataArray], bool, Dict]:
+    """
+    Create interactive coordinate filters for xarray data and apply them.
+
+    Args:
+        data: xarray Dataset or DataArray to filter
+        container: Streamlit container (defaults to st)
+        key_prefix: Prefix for Streamlit widget keys to avoid conflicts
+        expanded: Whether the expander starts expanded
+
+    Returns:
+        Tuple of (filtered_data, filters_applied, filter_specs)
+    """
+    if container is None:
+        container = st
+
+    # Keep track of original data to return if no filters are applied
+    filtered_data = data
+    filters_applied = False
+
+    # Create filter UI in an expander
+    with container.expander('Filter Data', expanded=expanded):
+        # Coordinate filtering
+        container.markdown('### Filter by Coordinates')
+
+        # Identify all coordinates in the data
+        coords = list(data.coords)
+
+        # Group coordinates by type
+        dim_coords = [c for c in coords if c in data.dims]
+        non_dim_coords = [c for c in coords if c not in data.dims]
+
+        # Let user select which coordinates to filter by
+        selected_coords = container.multiselect(
+            'Select coordinates to filter by:', coords, default=[], key=f'{key_prefix}_selected_coords'
+        )
+
+        # For each selected coordinate, provide appropriate filter options
+        coord_filters = {}
+        for coord in selected_coords:
+            container.markdown(f'**Filter by {coord}:**')
+
+            # Get unique values for this coordinate
+            coord_values = data.coords[coord].values
+
+            # Handle different types of coordinates differently
+            if np.issubdtype(coord_values.dtype, np.datetime64):
+                # For datetime coordinates, use date range sliders
+                min_date = pd.to_datetime(coord_values.min())
+                max_date = pd.to_datetime(coord_values.max())
+
+                date_col1, date_col2 = container.columns(2)
+                start_date = date_col1.date_input(
+                    f'Start date for {coord}',
+                    value=min_date,
+                    min_value=min_date,
+                    max_value=max_date,
+                    key=f'{key_prefix}_{coord}_start',
+                )
+                end_date = date_col2.date_input(
+                    f'End date for {coord}',
+                    value=max_date,
+                    min_value=min_date,
+                    max_value=max_date,
+                    key=f'{key_prefix}_{coord}_end',
+                )
+
+                # Convert to numpy datetime64
+                start_np = np.datetime64(pd.Timestamp(start_date))
+                end_np = np.datetime64(pd.Timestamp(end_date))
+
+                coord_filters[coord] = slice(start_np, end_np)
+
+            elif np.issubdtype(coord_values.dtype, np.number):
+                # For numeric coordinates, use number range sliders
+                try:
+                    min_val = float(coord_values.min())
+                    max_val = float(coord_values.max())
+                except:
+                    container.error(f'Error getting min/max for {coord}. Using defaults.')
+                    min_val, max_val = 0.0, 1.0
+
+                num_col1, num_col2 = container.columns(2)
+                start_val = num_col1.number_input(
+                    f'Min value for {coord}',
+                    value=min_val,
+                    min_value=min_val,
+                    max_value=max_val,
+                    key=f'{key_prefix}_{coord}_min',
+                )
+                end_val = num_col2.number_input(
+                    f'Max value for {coord}',
+                    value=max_val,
+                    min_value=min_val,
+                    max_value=max_val,
+                    key=f'{key_prefix}_{coord}_max',
+                )
+
+                coord_filters[coord] = slice(start_val, end_val)
+
+            else:
+                # For categorical/string/other coordinates, use multiselect
+                unique_values = np.unique(coord_values)
+                selected_values = container.multiselect(
+                    f'Select values for {coord}',
+                    unique_values,
+                    default=list(unique_values),
+                    key=f'{key_prefix}_{coord}_values',
+                )
+
+                coord_filters[coord] = selected_values
+
+        # Add a button to apply filters
+        apply_filters = container.button('Apply Filters', key=f'{key_prefix}_apply_filters')
+
+    # Apply filters if requested
+    if apply_filters and coord_filters:
+        try:
+            # Separate dimension and non-dimension filters
+            dim_filters = {dim: filter_value for dim, filter_value in coord_filters.items() if dim in dim_coords}
+            non_dim_filters = {
+                coord: filter_value for coord, filter_value in coord_filters.items() if coord in non_dim_coords
+            }
+
+            # Apply dimension filters using sel()
+            if dim_filters:
+                filtered_data = filtered_data.sel(**dim_filters)
+
+            # Apply non-dimension coordinate filters using where()
+            for coord, filter_value in non_dim_filters.items():
+                if isinstance(filter_value, list):
+                    # Handle list of selected values
+                    if filter_value:  # Only if not empty
+                        filtered_data = filtered_data.where(filtered_data.coords[coord].isin(filter_value), drop=True)
+                else:
+                    # Handle slice (range) selection
+                    start, end = filter_value.start, filter_value.stop
+                    filtered_data = filtered_data.where(
+                        (filtered_data.coords[coord] >= start) & (filtered_data.coords[coord] <= end), drop=True
+                    )
+
+            filters_applied = True
+
+        except Exception as e:
+            container.error(f'Error applying filters: {str(e)}')
+            # Keep original data if filtering fails
+            filtered_data = data
+
+    # Return filtered data, whether filters were applied, and filter specifications
+    return filtered_data, filters_applied, coord_filters
+
+
+@show_traceback()
 def xarray_explorer(
     data: Union[xr.Dataset, xr.DataArray],
     custom_plotters: Optional[Dict[str, Callable]] = None,
@@ -986,97 +1141,14 @@ def xarray_explorer(
     if container is None:
         container = st
 
+    # Convert scenario dimension to string to ensure categorical plots
+    if 'scenario' in data.dims:
+        data = data.assign_coords({'scenario': data.coords['scenario'].astype(str)})
+
+    filtered_data, filters_applied, filter_specs = filter_xarray_by_coords(data, container, key_prefix='explorer')
+
     # Determine if we're working with Dataset or DataArray
     is_dataset = isinstance(data, xr.Dataset)
-
-    # Add filters expander before variable selection
-    with container.expander('Filter Data', expanded=False):
-        # Coordinate filtering
-        st.markdown('### Filter by Coordinates')
-
-        # Identify all coordinates in the data
-        coords = list(data.coords)
-
-        # Group coordinates by type
-        dim_coords = [c for c in coords if c in data.dims]
-        non_dim_coords = [c for c in coords if c not in data.dims]
-
-        # Let user select which coordinates to filter by
-        selected_coords = st.multiselect('Select coordinates to filter by:', coords, default=[])
-
-        # For each selected coordinate, provide appropriate filter options
-        coord_filters = {}
-        for coord in selected_coords:
-            st.markdown(f'**Filter by {coord}:**')
-
-            # Get unique values for this coordinate
-            coord_values = data.coords[coord].values
-
-            # Handle different types of coordinates differently
-            if np.issubdtype(coord_values.dtype, np.datetime64):
-                # For datetime coordinates, use date range sliders
-                min_date = pd.to_datetime(coord_values.min())
-                max_date = pd.to_datetime(coord_values.max())
-
-                date_col1, date_col2 = st.columns(2)
-                start_date = date_col1.date_input(
-                    f'Start date for {coord}', value=min_date, min_value=min_date, max_value=max_date
-                )
-                end_date = date_col2.date_input(
-                    f'End date for {coord}', value=max_date, min_value=min_date, max_value=max_date
-                )
-
-                # Convert to numpy datetime64
-                start_np = np.datetime64(pd.Timestamp(start_date))
-                end_np = np.datetime64(pd.Timestamp(end_date))
-
-                coord_filters[coord] = slice(start_np, end_np)
-
-            elif np.issubdtype(coord_values.dtype, np.number):
-                # For numeric coordinates, use number range sliders
-                st.write(str(coord_values.dtype))
-                st.write(str(coord_values))
-
-                min_val = float(coord_values.min())
-                max_val = float(coord_values.max())
-
-                num_col1, num_col2 = st.columns(2)
-                start_val = num_col1.number_input(
-                    f'Min value for {coord}', value=min_val, min_value=min_val, max_value=max_val
-                )
-                end_val = num_col2.number_input(
-                    f'Max value for {coord}', value=max_val, min_value=min_val, max_value=max_val
-                )
-
-                coord_filters[coord] = slice(start_val, end_val)
-
-            else:
-                # For categorical/string/other coordinates, use multiselect
-                unique_values = np.unique(coord_values)
-                selected_values = st.multiselect(
-                    f'Select values for {coord}', unique_values, default=list(unique_values)
-                )
-
-                coord_filters[coord] = selected_values
-
-        # Add a button to apply filters
-        apply_filters = st.button('Apply Filters')
-
-    # Apply filters if the button was pressed
-    filtered_data = data
-    if apply_filters:
-        # In the part where we apply coordinate filters
-        dim_filters = {dim: filter_value for dim, filter_value in coord_filters.items() if dim in dim_coords}
-        coord_filters = {coord: filter_value for coord, filter_value in coord_filters.items() if coord in non_dim_coords}
-
-        for coord, filter_value in dim_filters.items():
-            filtered_data = filtered_data.sel(**{coord: filter_value})
-
-        for coord, filter_value in coord_filters.items():
-            filtered_data = filtered_data.where(
-                filtered_data[coord].isin(filter_value) if isinstance(filter_value, list) else filtered_data[coord] == filter_value,
-                drop=True
-            )
 
     # Variable selection for Dataset or direct visualization for DataArray
     if is_dataset:
@@ -1087,10 +1159,6 @@ def xarray_explorer(
         # If DataArray, use directly
         array_to_plot = filtered_data
         selected_var = filtered_data.name if filtered_data.name else 'Data'
-
-    # Convert scenario dimension to string to ensure categorical plots
-    if 'scenario' in array_to_plot.dims:
-        array_to_plot = array_to_plot.assign_coords({'scenario': array_to_plot.coords['scenario'].astype(str)})
 
     # Initialize result dictionary
     result = {
