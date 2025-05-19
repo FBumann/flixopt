@@ -1320,60 +1320,57 @@ def custom_heatmap_plotter(
 
 
 @show_traceback()
-def explore_results_app(results):
+def explore_results_app(results, container: Optional = None, use_sidebar: bool = True):
     """
     Main function to explore calculation results
 
     Args:
         results: A CalculationResults object to explore
     """
-    # Set page config
-    st.set_page_config(
-        page_title="FlixOpt Results Explorer",
-        page_icon="📊",
-        layout="wide",
-        initial_sidebar_state="expanded"
-    )
+    container = container or st
+    pages = ["Overview", "Components", "Buses", "Effects", "Flows DS", "Effects DS", 'Sizes DS', "Explorer"]
 
     # Create sidebar for navigation
-    st.sidebar.title("FlixOpt Results Explorer")
-    pages = ["Overview", "Components", "Buses", "Effects", "Flows DS", "Effects DS", 'Sizes DS', "Explorer"]
-    selected_page = st.sidebar.radio("Navigation", pages)
+    if use_sidebar:
+        container.sidebar.title("FlixOpt Results Explorer")
+        selected_page = container.sidebar.radio("Navigation", pages)
+    else:
+        selected_page = container.selectbox("Navigation", pages)
 
     # Overview page
     if selected_page == "Overview":
-        st.title("Calculation Overview")
+        container.title("Calculation Overview")
 
         # Model information
-        st.header("Model Information")
-        col1, col2 = st.columns(2)
+        container.header("Model Information")
+        col1, col2 = container.columns(2)
 
         with col1:
-            st.write(f"**Name:** {results.name}")
-            st.write(f"**Folder:** {results.folder}")
-            st.write(f"**Time Steps:** {len(results.timesteps_extra)}")
+            container.write(f"**Name:** {results.name}")
+            container.write(f"**Folder:** {results.folder}")
+            container.write(f"**Time Steps:** {len(results.timesteps_extra)}")
             if len(results.timesteps_extra) > 0:
-                st.write(f"**Time Range:** {results.timesteps_extra[0]} to {results.timesteps_extra[-1]}")
+                container.write(f"**Time Range:** {results.timesteps_extra[0]} to {results.timesteps_extra[-1]}")
 
         with col2:
-            st.write(f"**Components:** {len(results.components)}")
-            st.write(f"**Buses:** {len(results.buses)}")
-            st.write(f"**Effects:** {len(results.effects)}")
-            st.write(f"**Storage Components:** {len(results.storages)}")
+            container.write(f"**Components:** {len(results.components)}")
+            container.write(f"**Buses:** {len(results.buses)}")
+            container.write(f"**Effects:** {len(results.effects)}")
+            container.write(f"**Storage Components:** {len(results.storages)}")
 
         # Results summary
-        st.header('Results Summary')
-        tabs = st.tabs(list(results.summary.keys()))
+        container.header('Results Summary')
+        tabs = container.tabs(list(results.summary.keys()))
         for i, key in enumerate(results.summary.keys()):
             with tabs[i]:
                 if isinstance(results.summary[key], dict):
-                    st.json(results.summary[key])
+                    container.json(results.summary[key])
                 else:
-                    st.write(results.summary[key])
+                    container.write(results.summary[key])
 
         # Network visualization
-        st.header("Network Structure")
-        tabs = st.tabs(["Component Connections", "Nodes", "Edges"])
+        container.header("Network Structure")
+        tabs = container.tabs(["Component Connections", "Nodes", "Edges"])
 
         # Show component connections
         with tabs[0]:
@@ -1388,25 +1385,25 @@ def explore_results_app(results):
                         "Bus": flow.bus,
                     })
 
-            st.dataframe(pd.DataFrame(connections_data))
+            container.dataframe(pd.DataFrame(connections_data))
 
         network_infos = results.flow_system.network_infos()
         with tabs[1]:
-            st.json(network_infos[0])
+            container.json(network_infos[0])
 
         with tabs[2]:
-            st.json(network_infos[1])
+            container.json(network_infos[1])
 
 
     # Components page
     elif selected_page == "Components":
-        st.title("Components")
+        container.title("Components")
 
         # Component selector
         component_names = list(results.components.keys())
 
         # Allow grouping by storage/non-storage
-        show_storage_first = st.checkbox("Show storage components first", value=True)
+        show_storage_first = container.checkbox("Show storage components first", value=True)
 
         if show_storage_first:
             storage_components = [comp.label for comp in results.storages]
@@ -1415,47 +1412,47 @@ def explore_results_app(results):
         else:
             sorted_components = sorted(component_names)
 
-        component_name = st.selectbox("Select a component:", sorted_components)
+        component_name = container.selectbox("Select a component:", sorted_components)
 
         if component_name:
             component = results.components[component_name]
 
-            st.header(f"Component: {component_name}")
+            container.header(f"Component: {component_name}")
             if component.is_storage:
-                st.info("This is a storage component")
+                container.info("This is a storage component")
 
             # Component tabs
-            tabs = st.tabs(["Node Balance", "All Variables"])
+            tabs = container.tabs(["Node Balance", "All Variables"])
 
             # Node Balance tab
             with tabs[0]:
-                st.subheader("Node Balance")
+                container.subheader("Node Balance")
 
                 scenario = (
-                    st.selectbox(f'Select a scenario: {results.scenarios[0]}', list(results.scenarios))
+                    container.selectbox(f'Select a scenario: {results.scenarios[0]}', list(results.scenarios))
                     if results.scenarios is not None
                     else None
                 )
-                if st.checkbox("Show as pie chart", value=True):
+                if container.checkbox("Show as pie chart", value=True):
                     fig = component.plot_node_balance_pie(show=False, save=False, scenario=scenario)
                 elif component.is_storage:
                     fig = component.plot_charge_state(show=False, save=False, scenario=scenario)
                 else:
                     fig = component.plot_node_balance(show=False, save=False, scenario=scenario)
 
-                st.plotly_chart(fig, theme='streamlit', use_container_width=True)
+                container.plotly_chart(fig, theme='streamlit', use_container_width=True)
 
                 # Also show as dataframe if requested
-                if st.checkbox("Show Data Table"):
+                if container.checkbox("Show Data Table"):
                     if component.is_storage:
                         node_balance = component.node_balance_with_charge_state()
                     else:
                         node_balance = component.node_balance()
 
                     if scenario:
-                        st.dataframe(node_balance.sel(scenario=scenario).to_pandas())
+                        container.dataframe(node_balance.sel(scenario=scenario).to_pandas())
                     else:
-                        st.dataframe(node_balance.to_pandas())
+                        container.dataframe(node_balance.to_pandas())
 
             # Variables tab
             with tabs[1]:
@@ -1464,42 +1461,42 @@ def explore_results_app(results):
 
     # Buses page
     elif selected_page == "Buses":
-        st.title("Buses")
+        container.title("Buses")
 
         # Bus selector
         bus_names = list(results.buses.keys())
-        bus_name = st.selectbox("Select a bus:", sorted(bus_names))
+        bus_name = container.selectbox("Select a bus:", sorted(bus_names))
 
         if bus_name:
             bus = results.buses[bus_name]
 
-            st.header(f"Bus: {bus_name}")
+            container.header(f"Bus: {bus_name}")
 
             # Bus tabs
-            tabs = st.tabs(["Node Balance", "All Variables"])
+            tabs = container.tabs(["Node Balance", "All Variables"])
 
             # Node Balance tab
             with tabs[0]:
-                st.subheader("Node Balance")
+                container.subheader("Node Balance")
 
                 scenario = (
-                    st.selectbox(f'Select a scenario: {results.scenarios[0]}', list(results.scenarios))
+                    container.selectbox(f'Select a scenario: {results.scenarios[0]}', list(results.scenarios))
                     if results.scenarios is not None
                     else None
                 )
-                if st.checkbox("Show as pie chart", value=True):
+                if container.checkbox("Show as pie chart", value=True):
                     fig = bus.plot_node_balance_pie(show=False, save=False, scenario=scenario)
                 else:
                     fig = bus.plot_node_balance(show=False, save=False, scenario=scenario)
-                st.plotly_chart(fig, theme=None, use_container_width=True)
+                container.plotly_chart(fig, theme=None, use_container_width=True)
 
                 # Also show as dataframe if requested
-                if st.checkbox("Show Data Table"):
+                if container.checkbox("Show Data Table"):
                     if scenario:
                         df = bus.node_balance().sel(scenario=scenario).to_pandas()
                     else:
                         df = bus.node_balance().to_pandas()
-                    st.dataframe(df)
+                    container.dataframe(df)
 
 
             # Variables tab
@@ -1509,20 +1506,20 @@ def explore_results_app(results):
 
     # Effects page
     elif selected_page == "Effects":
-        st.title("Effects")
+        container.title("Effects")
 
         # Effect selector
         effect_names = list(results.effects.keys())
-        effect_name = st.selectbox("Select an effect:", sorted(effect_names), index=0)
+        effect_name = container.selectbox("Select an effect:", sorted(effect_names), index=0)
         effect = results.effects[effect_name]
 
-        st.header(f"Effect: {effect_name}")
+        container.header(f"Effect: {effect_name}")
 
         xarray_explorer(effect.solution)
 
     elif selected_page == "Flows DS":
-        st.title('Flow Rates Dataset')
-        mode = st.selectbox('Select a mode', ['Flow Rates', 'Flow Hours'])
+        container.title('Flow Rates Dataset')
+        mode = container.selectbox('Select a mode', ['Flow Rates', 'Flow Hours'])
 
         if mode == 'Flow Hours':
             xarray_explorer(results.flow_hours())
@@ -1530,16 +1527,16 @@ def explore_results_app(results):
             xarray_explorer(results.flow_rates())
 
     elif selected_page == 'Effects DS':
-        st.title('Effects Dataset')
-        mode = st.selectbox("Select a mode", ['total', 'invest', 'operation'])
+        container.title('Effects Dataset')
+        mode = container.selectbox("Select a mode", ['total', 'invest', 'operation'])
         xarray_explorer(results.effects_per_component(mode))
 
     elif selected_page == 'Sizes DS':
-        st.title('Sizes Dataset')
+        container.title('Sizes Dataset')
         xarray_explorer(results.sizes())
 
     elif selected_page == "Explorer":
-        st.title("Explore all variable results")
+        container.title("Explore all variable results")
         xarray_explorer(results.solution)
 
 
@@ -1556,6 +1553,10 @@ def run_explorer_from_file(folder, name):
         from flixopt.results import CalculationResults
         # Load from file
         results = CalculationResults.from_file(folder, name)
+        # Set page config
+        st.set_page_config(
+            page_title='FlixOpt Results Explorer', page_icon='📊', layout='wide', initial_sidebar_state='expanded'
+        )
         explore_results_app(results)
     except Exception as e:
         st.error(f"Error loading calculation results for streamlit app: {e}")
