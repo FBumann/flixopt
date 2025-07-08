@@ -1,6 +1,7 @@
-name: Bug Report
-description: Create a report if something doesn't work quite right.
-labels: ["bug", "needs triage"]
+name: 🐛 Bug Report
+description: Report a bug in flixopt
+title: "[BUG] "
+labels: ["type: bug"]
 body:
 - type: markdown
   attributes:
